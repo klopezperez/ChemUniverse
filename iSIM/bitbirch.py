@@ -26,29 +26,43 @@
 import numpy as np
 from scipy import sparse
 
-def jt_isim(c_total, n_objects):
-    """iSIM Tanimoto calculation
-    
-    https://pubs.rsc.org/en/content/articlelanding/2024/dd/d4dd00041b
-    
-    Parameters
-    ----------
-    c_total : np.ndarray
-              Sum of the elements column-wise
-              
-    n_objects : int
-                Number of elements
-                
-    Returns
-    ----------
-    isim : float
-           iSIM Jaccard-Tanimoto value
-    """
-    sum_kq = np.sum(c_total)
-    sum_kqsq = np.dot(c_total, c_total)
-    a = (sum_kqsq - sum_kq)/2
+def set_isim(isim_index):
+    if isim_index == 'JT':
+        def isim_comp(c_total, n_objects):
+            sum_kq = np.sum(c_total)
+            sum_kqsq = np.dot(c_total, c_total)
+            a = (sum_kqsq - sum_kq)/2
+            return a/(a + n_objects * sum_kq - sum_kqsq)
+    elif isim_index == 'SM':
+        def isim_comp(c_total, n_objects):
+            a = np.sum(c_total * (c_total - 1) / 2)
+            off_coincidences = n_objects - c_total
+            d = np.sum(off_coincidences * (off_coincidences - 1) / 2)
+            p = n_objects * (n_objects - 1) * len(c_total) / 2
+            return (a + d)/p
+    elif isim_index == 'RR':
+        def isim_comp(c_total, n_objects):
+            a = np.sum(c_total * (c_total - 1) / 2)
+            p = n_objects * (n_objects - 1) * len(c_total) / 2
+            return a/p
+    globals()['isim_comp'] = isim_comp
 
-    return a/(a + n_objects * sum_kq - sum_kqsq)
+def mol_set_sim(isim_index):
+    if isim_index == 'JT':
+        def mol_set(mol, set_mol, set_bits):
+            a = np.dot(set_mol, mol)
+            return a / (np.sum(set_mol, axis = 1) + set_bits - a)
+    elif isim_index == 'SM':
+        def mol_set(mol, set_mol, set_bits):
+            a = np.dot(set_mol, mol)
+            d = np.dot(1 - set_mol, 1 - mol)
+            return a + d
+    elif isim_index == 'RR':
+        def mol_set(mol, set_mol, set_bits):
+            a = np.dot(set_mol, mol)
+            return a
+    globals()['mol_set'] = mol_set
+
 
 def max_separation(X):
     """Finds two objects in X that are very separated
@@ -275,8 +289,7 @@ class _BFNode:
         branching_factor = self.branching_factor
         # We need to find the closest subcluster among all the
         # subclusters so that we can insert our new subcluster.
-        a = np.dot(self.centroids_, subcluster.centroid_)
-        sim_matrix = a / (np.sum(self.centroids_, axis = 1) + set_bits - a)
+        sim_matrix = mol_set(subcluster.centroid_, self.centroids_, set_bits)
         closest_index = np.argmax(sim_matrix)
         closest_subcluster = self.subclusters_[closest_index]
 
@@ -388,9 +401,9 @@ class _BFSubcluster:
         new_n = self.n_samples_ + nominee_cluster.n_samples_
         new_centroid = calc_centroid(new_ls, new_n)
         
-        jt_sim = jt_isim(new_ls + new_centroid, new_n + 1) * (new_n + 1) - jt_isim(new_ls, new_n) * (new_n - 1)
+        isim_sim = isim_comp(new_ls + new_centroid, new_n + 1) * (new_n + 1) - isim_comp(new_ls, new_n) * (new_n - 1)
         
-        if jt_sim >= threshold*2:
+        if isim_sim >= threshold*2:
             (
                 self.n_samples_,
                 self.linear_sum_,
