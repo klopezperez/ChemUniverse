@@ -1,0 +1,4 @@
+*.npy
+chembl_33_np_analysis.csv
+chembl_33_np_clustering.csv
+clean_files.py
